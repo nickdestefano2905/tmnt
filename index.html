@@ -242,7 +242,7 @@ function handleTap(clientX, clientY) {
     if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
       if (gameState === 'victory') {
         currentLevel++;
-        if (currentLevel > 2) currentLevel = 1; // Loop back
+        if (currentLevel > 3) currentLevel = 1; // Loop back
         startGame();
       } else {
         startGame();
@@ -331,9 +331,13 @@ function generateLevel(levelNum) {
       // NYC decorations
       let type = ['hydrant', 'manhole', 'trashcan', 'lamppost'][randInt(0, 3)];
       data.decorations.push({ x: i, type });
-    } else {
+    } else if (levelNum === 2) {
       // Beach decorations
       let type = ['palmtree', 'umbrella', 'surfboard', 'sandcastle'][randInt(0, 3)];
+      data.decorations.push({ x: i, type });
+    } else {
+      // Snow mountain decorations
+      let type = ['pinetree', 'snowman', 'rock', 'skisign'][randInt(0, 3)];
       data.decorations.push({ x: i, type });
     }
   }
@@ -562,12 +566,19 @@ function draw() {
     grad.addColorStop(0.5, '#4a3f6e');
     grad.addColorStop(1, '#2d2d5a');
     ctx.fillStyle = grad;
-  } else {
+  } else if (currentLevel === 2) {
     // Beach - bright day
     let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
     grad.addColorStop(0, '#87CEEB');
     grad.addColorStop(0.6, '#98D8E8');
     grad.addColorStop(1, '#F0E68C');
+    ctx.fillStyle = grad;
+  } else {
+    // Snow mountain - crisp winter sky
+    let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, '#4A90B8');
+    grad.addColorStop(0.4, '#87CEEB');
+    grad.addColorStop(1, '#E8F4F8');
     ctx.fillStyle = grad;
   }
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -609,9 +620,12 @@ function drawBackground() {
   if (currentLevel === 1) {
     // NYC Buildings (parallax)
     drawNYCBackground();
-  } else {
+  } else if (currentLevel === 2) {
     // Beach background
     drawBeachBackground();
+  } else {
+    // Snow mountain background
+    drawSnowMountainBackground();
   }
 }
 
@@ -669,6 +683,60 @@ function drawBeachBackground() {
   for (let i = 0; i < 5; i++) {
     ctx.fillRect(120 + i * 60 - scrollX * 0.1, canvas.height * 0.45, 8, 60);
   }
+}
+
+function drawSnowMountainBackground() {
+  // Distant mountains (parallax)
+  ctx.fillStyle = '#B8D4E8';
+  for (let i = -1; i < 6; i++) {
+    let mx = i * 200 - (scrollX * 0.05) % 200;
+    let mh = 150 + Math.sin(i * 1.2) * 50;
+    ctx.beginPath();
+    ctx.moveTo(mx, groundY() - 50);
+    ctx.lineTo(mx + 100, groundY() - mh);
+    ctx.lineTo(mx + 200, groundY() - 50);
+    ctx.closePath();
+    ctx.fill();
+    // Snow cap
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.moveTo(mx + 70, groundY() - mh + 30);
+    ctx.lineTo(mx + 100, groundY() - mh);
+    ctx.lineTo(mx + 130, groundY() - mh + 30);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#B8D4E8';
+  }
+
+  // Closer mountains
+  ctx.fillStyle = '#9BC4DE';
+  for (let i = -1; i < 5; i++) {
+    let mx = i * 250 - (scrollX * 0.15) % 250;
+    let mh = 100 + Math.sin(i * 2.1) * 40;
+    ctx.beginPath();
+    ctx.moveTo(mx, groundY() - 30);
+    ctx.lineTo(mx + 125, groundY() - mh);
+    ctx.lineTo(mx + 250, groundY() - 30);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Falling snowflakes
+  ctx.fillStyle = '#FFF';
+  for (let i = 0; i < 40; i++) {
+    let sx = (i * 73 + scrollX * 0.3) % canvas.width;
+    let sy = (i * 47 + scrollX * 0.8) % (canvas.height * 0.7);
+    let size = 2 + (i % 3);
+    ctx.beginPath();
+    ctx.arc(sx, sy, size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Sun (cold/pale)
+  ctx.fillStyle = '#FFFDE7';
+  ctx.beginPath();
+  ctx.arc(canvas.width - 70, 55, 35, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawGame() {
@@ -745,7 +813,7 @@ function drawGround() {
       let lx = i - (scrollX % 60);
       ctx.fillRect(lx, groundY() + 10, 2, GROUND_HEIGHT - 10);
     }
-  } else {
+  } else if (currentLevel === 2) {
     // Beach sand
     ctx.fillStyle = '#F4D03F';
     ctx.fillRect(0, groundY(), canvas.width, GROUND_HEIGHT);
@@ -756,6 +824,28 @@ function drawGround() {
     for (let i = 0; i < 30; i++) {
       let dx = (i * 47 + scrollX * 0.5) % canvas.width;
       ctx.fillRect(dx, groundY() + 15 + (i % 5) * 10, 3, 3);
+    }
+  } else {
+    // Snow mountain slope
+    ctx.fillStyle = '#F0F8FF';
+    ctx.fillRect(0, groundY(), canvas.width, GROUND_HEIGHT);
+    ctx.fillStyle = '#E8F4F8';
+    ctx.fillRect(0, groundY(), canvas.width, 8);
+    // Snow texture / ski tracks
+    ctx.fillStyle = '#D0E8F0';
+    for (let i = 0; i < canvas.width; i += 30) {
+      let lx = i - (scrollX % 30);
+      ctx.fillRect(lx, groundY() + 12, 20, 3);
+      ctx.fillRect(lx + 5, groundY() + 25, 18, 3);
+    }
+    // Sparkles in snow
+    ctx.fillStyle = '#FFF';
+    for (let i = 0; i < 15; i++) {
+      let sx = (i * 67 + scrollX * 0.7) % canvas.width;
+      let sy = groundY() + 10 + (i % 4) * 12;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 }
@@ -818,6 +908,105 @@ function drawDecoration(type, x) {
     ctx.fillRect(x + 17, groundY() - 30, 8, 13);
     ctx.fillStyle = '#E74C3C';
     ctx.fillRect(x + 7, groundY() - 40, 4, 8);
+  } else if (type === 'pinetree') {
+    // Snow-covered pine tree
+    ctx.fillStyle = '#5D4037';
+    ctx.fillRect(x + 12, groundY() - 30, 10, 30);
+    // Tree layers
+    ctx.fillStyle = '#2E7D32';
+    ctx.beginPath();
+    ctx.moveTo(x + 17, groundY() - 90);
+    ctx.lineTo(x + 40, groundY() - 50);
+    ctx.lineTo(x - 6, groundY() - 50);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 17, groundY() - 70);
+    ctx.lineTo(x + 45, groundY() - 30);
+    ctx.lineTo(x - 11, groundY() - 30);
+    ctx.closePath();
+    ctx.fill();
+    // Snow on tree
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.moveTo(x + 17, groundY() - 90);
+    ctx.lineTo(x + 30, groundY() - 70);
+    ctx.lineTo(x + 4, groundY() - 70);
+    ctx.closePath();
+    ctx.fill();
+  } else if (type === 'snowman') {
+    // Friendly snowman
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.arc(x + 18, groundY() - 15, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 18, groundY() - 40, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 18, groundY() - 58, 10, 0, Math.PI * 2);
+    ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(x + 14, groundY() - 60, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 22, groundY() - 60, 2, 0, Math.PI * 2);
+    ctx.fill();
+    // Carrot nose
+    ctx.fillStyle = '#FF6B35';
+    ctx.beginPath();
+    ctx.moveTo(x + 18, groundY() - 56);
+    ctx.lineTo(x + 28, groundY() - 54);
+    ctx.lineTo(x + 18, groundY() - 52);
+    ctx.closePath();
+    ctx.fill();
+    // Hat
+    ctx.fillStyle = '#333';
+    ctx.fillRect(x + 8, groundY() - 72, 20, 6);
+    ctx.fillRect(x + 11, groundY() - 85, 14, 15);
+    // Buttons
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(x + 18, groundY() - 35, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 18, groundY() - 43, 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (type === 'rock') {
+    // Snow-covered rock
+    ctx.fillStyle = '#777';
+    ctx.beginPath();
+    ctx.ellipse(x + 20, groundY() - 10, 22, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.ellipse(x + 20, groundY() - 16, 16, 6, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (type === 'skisign') {
+    // Ski slope sign
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(x + 14, groundY() - 60, 6, 60);
+    ctx.fillStyle = '#2196F3';
+    ctx.beginPath();
+    ctx.moveTo(x + 17, groundY() - 80);
+    ctx.lineTo(x + 40, groundY() - 55);
+    ctx.lineTo(x - 6, groundY() - 55);
+    ctx.closePath();
+    ctx.fill();
+    // Arrow
+    ctx.fillStyle = '#FFF';
+    ctx.beginPath();
+    ctx.moveTo(x + 10, groundY() - 65);
+    ctx.lineTo(x + 28, groundY() - 65);
+    ctx.lineTo(x + 28, groundY() - 70);
+    ctx.lineTo(x + 35, groundY() - 62);
+    ctx.lineTo(x + 28, groundY() - 54);
+    ctx.lineTo(x + 28, groundY() - 59);
+    ctx.lineTo(x + 10, groundY() - 59);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 
@@ -1132,7 +1321,8 @@ function drawUI() {
   ctx.fillStyle = '#FFF';
   ctx.font = '14px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText(currentLevel === 1 ? 'NEW YORK CITY' : 'BEACH PARTY', canvas.width / 2, 52);
+  let levelName = currentLevel === 1 ? 'NEW YORK CITY' : currentLevel === 2 ? 'BEACH PARTY' : 'SNOW MOUNTAIN';
+  ctx.fillText(levelName, canvas.width / 2, 52);
 
   // Mute button
   ctx.fillStyle = 'rgba(0,0,0,0.4)';
@@ -1272,7 +1462,7 @@ function drawVictoryScreen() {
 
   ctx.fillStyle = '#FFF';
   ctx.font = 'bold 26px Arial';
-  let btnText = currentLevel < 2 ? 'NEXT LEVEL!' : 'PLAY AGAIN!';
+  let btnText = currentLevel < 3 ? 'NEXT LEVEL!' : 'PLAY AGAIN!';
   ctx.fillText(btnText, canvas.width / 2, btnY + 40);
 
   // Draw happy Mikey
