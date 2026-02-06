@@ -408,8 +408,9 @@ function update(dt) {
   // Auto-scroll
   scrollX += SCROLL_SPEED;
 
-  // Check win condition
-  if (scrollX > LEVEL_LENGTH - canvas.width / 2 && levelData.shredder.defeated) {
+  // Check win condition - finish line before Shredder
+  let finishLineX = LEVEL_LENGTH - 400;
+  if (scrollX > finishLineX - 120) {
     gameState = 'victory';
     stopMusic();
     playWinSound();
@@ -500,37 +501,13 @@ function update(dt) {
     }
   }
 
-  // Check Shredder
+  // Animate Shredder (he stands behind finish line, menacing but unreachable)
   let s = levelData.shredder;
-  if (!s.defeated) {
-    s.timer += dt;
-    s.jumpTimer += dt;
-
-    // Simple pattern: jump up and down
-    if (s.jumpTimer > 2) {
-      s.jumpTimer = 0;
-      s.phase = (s.phase + 1) % 2;
-    }
-
-    let shredderScreenX = s.x - scrollX;
-    if (shredderScreenX < canvas.width && shredderScreenX > -s.w) {
-      if (invincibleTimer <= 0) {
-        let shredderBox = { x: shredderScreenX + 10, y: s.y + 10, w: s.w - 20, h: s.h - 20 };
-        let mikeySmall = { x: 120 + 10, y: mikey.y + 10, w: mikey.width - 20, h: mikey.height - 20 };
-
-        // If Mikey jumps on Shredder's head, defeat him!
-        if (mikey.vy > 0 && mikey.y + mikey.height < s.y + 30 &&
-            Math.abs((120 + mikey.width/2) - (shredderScreenX + s.w/2)) < 40) {
-          s.defeated = true;
-          shredderDefeated = true;
-          mikey.vy = -8; // Bounce
-          playWinSound();
-          spawnCelebration(shredderScreenX + s.w/2, s.y, 20);
-        } else if (rectOverlap(mikeySmall, shredderBox)) {
-          takeDamage();
-        }
-      }
-    }
+  s.timer += dt;
+  s.jumpTimer += dt;
+  if (s.jumpTimer > 2) {
+    s.jumpTimer = 0;
+    s.phase = (s.phase + 1) % 2;
   }
 
   // Update celebration particles
@@ -948,11 +925,18 @@ function drawGame() {
     drawFootNinja(sx, e.y, e.dir);
   }
 
-  // Shredder
+  // Finish line
+  let finishLineX = LEVEL_LENGTH - 400;
+  let finishScreenX = finishLineX - scrollX;
+  if (finishScreenX < canvas.width + 50 && finishScreenX > -50) {
+    drawFinishLine(finishScreenX);
+  }
+
+  // Shredder (standing behind finish line, menacing but you don't reach him)
   let s = levelData.shredder;
-  let sx = s.x - scrollX;
-  if (sx < canvas.width + 100 && sx > -100 && !s.defeated) {
-    drawShredder(sx, s.y, s.phase);
+  let shredderScreenX = s.x - scrollX;
+  if (shredderScreenX < canvas.width + 100 && shredderScreenX > -100) {
+    drawShredder(shredderScreenX, s.y, s.phase);
   }
 
   // Mikey
@@ -1458,6 +1442,61 @@ function drawFootNinja(x, y, dir) {
   ctx.fillRect(x + 18, y + 35, 6, 10);
 }
 
+function drawFinishLine(x) {
+  // Checkered finish line banner
+  let bannerTop = groundY() - 100;
+  let bannerHeight = 30;
+
+  // Poles
+  ctx.fillStyle = '#FFD700';
+  ctx.fillRect(x - 5, bannerTop, 10, 100);
+  ctx.fillRect(x + 55, bannerTop, 10, 100);
+
+  // Banner background
+  ctx.fillStyle = '#FFF';
+  ctx.fillRect(x, bannerTop, 60, bannerHeight);
+
+  // Checkered pattern
+  ctx.fillStyle = '#000';
+  let squareSize = 10;
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 6; col++) {
+      if ((row + col) % 2 === 0) {
+        ctx.fillRect(x + col * squareSize, bannerTop + row * squareSize, squareSize, squareSize);
+      }
+    }
+  }
+
+  // "FINISH" text
+  ctx.fillStyle = '#2ECC71';
+  ctx.font = 'bold 16px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('FINISH!', x + 30, bannerTop - 10);
+
+  // Sparkles around finish line
+  ctx.fillStyle = '#FFD700';
+  let sparkle = Math.sin(Date.now() * 0.005) * 0.5 + 0.5;
+  ctx.globalAlpha = sparkle;
+  for (let i = 0; i < 5; i++) {
+    let sy = bannerTop - 20 + Math.sin(Date.now() * 0.003 + i) * 15;
+    let ssize = 4 + Math.sin(Date.now() * 0.004 + i * 2) * 2;
+    ctx.beginPath();
+    ctx.arc(x + 10 + i * 12, sy, ssize, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Ground line
+  ctx.strokeStyle = '#FFD700';
+  ctx.lineWidth = 4;
+  ctx.setLineDash([10, 10]);
+  ctx.beginPath();
+  ctx.moveTo(x + 30, groundY() - 5);
+  ctx.lineTo(x + 30, groundY() + 20);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
 function drawShredder(x, y, phase) {
   // Shredder - big but cartoony, not scary
   let bounce = Math.sin(phase * Math.PI) * 10;
@@ -1641,7 +1680,9 @@ function drawProgressBar() {
   let barX = canvas.width / 2 - barW / 2;
   let barY = 15;
 
-  let progress = scrollX / (LEVEL_LENGTH - canvas.width / 2);
+  // Finish line is the goal, not end of level
+  let finishLineX = LEVEL_LENGTH - 400;
+  let progress = scrollX / (finishLineX - 120);
   progress = clamp(progress, 0, 1);
 
   // Background
@@ -1662,11 +1703,13 @@ function drawProgressBar() {
   ctx.fillStyle = '#FF6B35';
   ctx.fillRect(barX + barW * progress - 6, barY + barH / 2 - 3, 12, 4);
 
-  // Shredder icon at end
-  ctx.fillStyle = levelData.shredder.defeated ? '#2ECC71' : '#8E44AD';
-  ctx.beginPath();
-  ctx.arc(barX + barW - 2, barY + barH / 2, 7, 0, Math.PI * 2);
-  ctx.fill();
+  // Finish flag at end (checkered)
+  ctx.fillStyle = '#FFD700';
+  ctx.fillRect(barX + barW - 4, barY - 4, 8, barH + 8);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(barX + barW - 2, barY, 2, 4);
+  ctx.fillRect(barX + barW + 2, barY + 4, 2, 4);
+  ctx.fillRect(barX + barW - 2, barY + 8, 2, 4);
 }
 
 function drawUI() {
