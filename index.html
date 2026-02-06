@@ -234,19 +234,28 @@ function handleTap(clientX, clientY) {
     return;
   }
 
-  if (gameState === 'victory' || gameState === 'gameover') {
-    // Check restart/next button
+  if (gameState === 'victory') {
+    // Check next level button - match position from drawVictoryScreen
     let btnW = 220, btnH = 60;
     let btnX = canvas.width / 2 - btnW / 2;
-    let btnY = canvas.height * 0.62;
-    if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
-      if (gameState === 'victory') {
-        currentLevel++;
-        if (currentLevel > 5) currentLevel = 1; // Loop back
-        startGame();
-      } else {
-        startGame();
-      }
+    let btnY = canvas.height * 0.55;
+    // Generous hit area for kids
+    if (x >= btnX - 20 && x <= btnX + btnW + 20 && y >= btnY - 20 && y <= btnY + btnH + 20) {
+      currentLevel++;
+      if (currentLevel > 5) currentLevel = 1; // Loop back
+      startGame();
+    }
+    return;
+  }
+
+  if (gameState === 'gameover') {
+    // Check try again button - match position from drawGameOverScreen
+    let btnW = 220, btnH = 60;
+    let btnX = canvas.width / 2 - btnW / 2;
+    let btnY = canvas.height * 0.55;
+    // Generous hit area for kids
+    if (x >= btnX - 20 && x <= btnX + btnW + 20 && y >= btnY - 20 && y <= btnY + btnH + 20) {
+      startGame();
     }
     return;
   }
