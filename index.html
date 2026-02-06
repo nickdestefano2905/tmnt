@@ -242,7 +242,7 @@ function handleTap(clientX, clientY) {
     if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
       if (gameState === 'victory') {
         currentLevel++;
-        if (currentLevel > 3) currentLevel = 1; // Loop back
+        if (currentLevel > 5) currentLevel = 1; // Loop back
         startGame();
       } else {
         startGame();
@@ -335,9 +335,17 @@ function generateLevel(levelNum) {
       // Beach decorations
       let type = ['palmtree', 'umbrella', 'surfboard', 'sandcastle'][randInt(0, 3)];
       data.decorations.push({ x: i, type });
-    } else {
+    } else if (levelNum === 3) {
       // Snow mountain decorations
       let type = ['pinetree', 'snowman', 'rock', 'skisign'][randInt(0, 3)];
+      data.decorations.push({ x: i, type });
+    } else if (levelNum === 4) {
+      // Desert decorations
+      let type = ['cactus', 'tumbleweed', 'skull', 'desertrock'][randInt(0, 3)];
+      data.decorations.push({ x: i, type });
+    } else {
+      // Space decorations
+      let type = ['crater', 'alienplant', 'spacerover', 'flag'][randInt(0, 3)];
       data.decorations.push({ x: i, type });
     }
   }
@@ -573,12 +581,27 @@ function draw() {
     grad.addColorStop(0.6, '#98D8E8');
     grad.addColorStop(1, '#F0E68C');
     ctx.fillStyle = grad;
-  } else {
+  } else if (currentLevel === 3) {
     // Snow mountain - crisp winter sky
     let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
     grad.addColorStop(0, '#4A90B8');
     grad.addColorStop(0.4, '#87CEEB');
     grad.addColorStop(1, '#E8F4F8');
+    ctx.fillStyle = grad;
+  } else if (currentLevel === 4) {
+    // Desert - hot orange/yellow sky
+    let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, '#FF6B35');
+    grad.addColorStop(0.3, '#FFA500');
+    grad.addColorStop(0.7, '#FFD700');
+    grad.addColorStop(1, '#F4D03F');
+    ctx.fillStyle = grad;
+  } else {
+    // Space - dark with stars
+    let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, '#0a0a20');
+    grad.addColorStop(0.5, '#1a1a3e');
+    grad.addColorStop(1, '#2a2a4e');
     ctx.fillStyle = grad;
   }
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -623,9 +646,15 @@ function drawBackground() {
   } else if (currentLevel === 2) {
     // Beach background
     drawBeachBackground();
-  } else {
+  } else if (currentLevel === 3) {
     // Snow mountain background
     drawSnowMountainBackground();
+  } else if (currentLevel === 4) {
+    // Desert background
+    drawDesertBackground();
+  } else {
+    // Space background
+    drawSpaceBackground();
   }
 }
 
@@ -739,6 +768,142 @@ function drawSnowMountainBackground() {
   ctx.fill();
 }
 
+function drawDesertBackground() {
+  // Distant sand dunes (parallax)
+  ctx.fillStyle = '#E8C170';
+  for (let i = -1; i < 8; i++) {
+    let dx = i * 180 - (scrollX * 0.08) % 180;
+    let dh = 60 + Math.sin(i * 1.8) * 30;
+    ctx.beginPath();
+    ctx.moveTo(dx - 20, groundY());
+    ctx.quadraticCurveTo(dx + 90, groundY() - dh, dx + 200, groundY());
+    ctx.fill();
+  }
+
+  // Closer dunes
+  ctx.fillStyle = '#D4A84B';
+  for (let i = -1; i < 6; i++) {
+    let dx = i * 220 - (scrollX * 0.2) % 220;
+    let dh = 40 + Math.sin(i * 2.5) * 25;
+    ctx.beginPath();
+    ctx.moveTo(dx - 30, groundY());
+    ctx.quadraticCurveTo(dx + 110, groundY() - dh, dx + 250, groundY());
+    ctx.fill();
+  }
+
+  // Hot sun
+  ctx.fillStyle = '#FFD700';
+  ctx.beginPath();
+  ctx.arc(canvas.width - 90, 70, 50, 0, Math.PI * 2);
+  ctx.fill();
+  // Sun rays
+  ctx.strokeStyle = '#FFA500';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 12; i++) {
+    let angle = (i / 12) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(canvas.width - 90 + Math.cos(angle) * 55, 70 + Math.sin(angle) * 55);
+    ctx.lineTo(canvas.width - 90 + Math.cos(angle) * 70, 70 + Math.sin(angle) * 70);
+    ctx.stroke();
+  }
+
+  // Heat shimmer effect (wavy lines)
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 2;
+  for (let y = groundY() - 30; y < groundY(); y += 15) {
+    ctx.beginPath();
+    for (let x = 0; x < canvas.width; x += 5) {
+      let wy = y + Math.sin((x + scrollX) * 0.03) * 3;
+      if (x === 0) ctx.moveTo(x, wy);
+      else ctx.lineTo(x, wy);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawSpaceBackground() {
+  // Stars (lots of them!)
+  ctx.fillStyle = '#FFF';
+  for (let i = 0; i < 80; i++) {
+    let sx = (i * 97 + scrollX * 0.02) % canvas.width;
+    let sy = (i * 53) % (canvas.height * 0.75);
+    let size = 1 + (i % 3);
+    let twinkle = 0.5 + Math.sin(scrollX * 0.01 + i) * 0.5;
+    ctx.globalAlpha = twinkle;
+    ctx.beginPath();
+    ctx.arc(sx, sy, size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Colorful nebula clouds
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = '#9B59B6';
+  ctx.beginPath();
+  ctx.arc(200 - scrollX * 0.03, 100, 80, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#3498DB';
+  ctx.beginPath();
+  ctx.arc(500 - scrollX * 0.02, 150, 100, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#E74C3C';
+  ctx.beginPath();
+  ctx.arc(750 - scrollX * 0.04, 80, 60, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // Earth in the distance
+  ctx.fillStyle = '#3498DB';
+  ctx.beginPath();
+  ctx.arc(100 - scrollX * 0.01, 80, 40, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2ECC71';
+  ctx.beginPath();
+  ctx.arc(95 - scrollX * 0.01, 75, 15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(115 - scrollX * 0.01, 90, 12, 0, Math.PI * 2);
+  ctx.fill();
+  // Atmosphere glow
+  ctx.strokeStyle = 'rgba(135, 206, 250, 0.4)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(100 - scrollX * 0.01, 80, 44, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Distant planets
+  ctx.fillStyle = '#E67E22';
+  ctx.beginPath();
+  ctx.arc(canvas.width - 120 + scrollX * 0.015, 60, 25, 0, Math.PI * 2);
+  ctx.fill();
+  // Planet ring
+  ctx.strokeStyle = '#F39C12';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.ellipse(canvas.width - 120 + scrollX * 0.015, 60, 40, 10, 0.3, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Shooting stars occasionally
+  let shootingStar = (scrollX % 500) < 100;
+  if (shootingStar) {
+    let progress = (scrollX % 500) / 100;
+    let sx = 200 + progress * 150;
+    let sy = 50 + progress * 80;
+    ctx.strokeStyle = '#FFF';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx - 30, sy - 15);
+    ctx.stroke();
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(sx - 30, sy - 15);
+    ctx.lineTo(sx - 60, sy - 30);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
 function drawGame() {
   // Decorations
   for (let d of levelData.decorations) {
@@ -825,7 +990,7 @@ function drawGround() {
       let dx = (i * 47 + scrollX * 0.5) % canvas.width;
       ctx.fillRect(dx, groundY() + 15 + (i % 5) * 10, 3, 3);
     }
-  } else {
+  } else if (currentLevel === 3) {
     // Snow mountain slope
     ctx.fillStyle = '#F0F8FF';
     ctx.fillRect(0, groundY(), canvas.width, GROUND_HEIGHT);
@@ -846,6 +1011,52 @@ function drawGround() {
       ctx.beginPath();
       ctx.arc(sx, sy, 2, 0, Math.PI * 2);
       ctx.fill();
+    }
+  } else if (currentLevel === 4) {
+    // Desert sand
+    ctx.fillStyle = '#E8B84A';
+    ctx.fillRect(0, groundY(), canvas.width, GROUND_HEIGHT);
+    ctx.fillStyle = '#D4A030';
+    ctx.fillRect(0, groundY(), canvas.width, 6);
+    // Sand ripples
+    ctx.strokeStyle = '#C89028';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < canvas.width; i += 25) {
+      let lx = i - (scrollX % 25);
+      ctx.beginPath();
+      ctx.moveTo(lx, groundY() + 15);
+      ctx.quadraticCurveTo(lx + 12, groundY() + 12, lx + 25, groundY() + 15);
+      ctx.stroke();
+    }
+    // Scattered pebbles
+    ctx.fillStyle = '#8B7355';
+    for (let i = 0; i < 20; i++) {
+      let px = (i * 53 + scrollX * 0.6) % canvas.width;
+      let py = groundY() + 20 + (i % 5) * 10;
+      ctx.beginPath();
+      ctx.arc(px, py, 2 + (i % 2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    // Moon/space surface
+    ctx.fillStyle = '#4A4A5A';
+    ctx.fillRect(0, groundY(), canvas.width, GROUND_HEIGHT);
+    ctx.fillStyle = '#3A3A4A';
+    ctx.fillRect(0, groundY(), canvas.width, 6);
+    // Craters in ground
+    ctx.fillStyle = '#2A2A3A';
+    for (let i = 0; i < canvas.width; i += 80) {
+      let cx = i - (scrollX % 80);
+      ctx.beginPath();
+      ctx.ellipse(cx + 20, groundY() + 25, 15, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Rocky texture
+    ctx.fillStyle = '#5A5A6A';
+    for (let i = 0; i < 25; i++) {
+      let rx = (i * 41 + scrollX * 0.4) % canvas.width;
+      let ry = groundY() + 10 + (i % 6) * 8;
+      ctx.fillRect(rx, ry, 4 + (i % 3), 3);
     }
   }
 }
@@ -1006,6 +1217,167 @@ function drawDecoration(type, x) {
     ctx.lineTo(x + 28, groundY() - 59);
     ctx.lineTo(x + 10, groundY() - 59);
     ctx.closePath();
+    ctx.fill();
+  } else if (type === 'cactus') {
+    // Desert cactus
+    ctx.fillStyle = '#2E7D32';
+    ctx.fillRect(x + 12, groundY() - 60, 12, 60);
+    // Arms
+    ctx.fillRect(x, groundY() - 45, 14, 8);
+    ctx.fillRect(x, groundY() - 45, 8, 25);
+    ctx.fillRect(x + 22, groundY() - 35, 14, 8);
+    ctx.fillRect(x + 28, groundY() - 35, 8, 20);
+    // Spines
+    ctx.strokeStyle = '#1B5E20';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.moveTo(x + 24, groundY() - 55 + i * 10);
+      ctx.lineTo(x + 28, groundY() - 57 + i * 10);
+      ctx.stroke();
+    }
+  } else if (type === 'tumbleweed') {
+    // Rolling tumbleweed
+    let roll = (scrollX * 0.5) % (Math.PI * 2);
+    ctx.save();
+    ctx.translate(x + 15, groundY() - 15);
+    ctx.rotate(roll);
+    ctx.strokeStyle = '#8B7355';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.stroke();
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(i) * 12, Math.sin(i) * 12);
+      ctx.stroke();
+    }
+    ctx.restore();
+  } else if (type === 'skull') {
+    // Cow skull
+    ctx.fillStyle = '#F5F5DC';
+    ctx.beginPath();
+    ctx.ellipse(x + 18, groundY() - 12, 14, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Eye sockets
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.arc(x + 12, groundY() - 14, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 24, groundY() - 14, 4, 0, Math.PI * 2);
+    ctx.fill();
+    // Horns
+    ctx.fillStyle = '#D2B48C';
+    ctx.beginPath();
+    ctx.moveTo(x + 5, groundY() - 15);
+    ctx.quadraticCurveTo(x - 5, groundY() - 30, x + 2, groundY() - 35);
+    ctx.quadraticCurveTo(x + 8, groundY() - 25, x + 10, groundY() - 15);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + 31, groundY() - 15);
+    ctx.quadraticCurveTo(x + 41, groundY() - 30, x + 34, groundY() - 35);
+    ctx.quadraticCurveTo(x + 28, groundY() - 25, x + 26, groundY() - 15);
+    ctx.fill();
+  } else if (type === 'desertrock') {
+    // Desert rock formation
+    ctx.fillStyle = '#A0522D';
+    ctx.beginPath();
+    ctx.moveTo(x, groundY());
+    ctx.lineTo(x + 10, groundY() - 35);
+    ctx.lineTo(x + 20, groundY() - 25);
+    ctx.lineTo(x + 30, groundY() - 40);
+    ctx.lineTo(x + 40, groundY());
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#8B4513';
+    ctx.beginPath();
+    ctx.moveTo(x + 5, groundY());
+    ctx.lineTo(x + 15, groundY() - 20);
+    ctx.lineTo(x + 25, groundY());
+    ctx.closePath();
+    ctx.fill();
+  } else if (type === 'crater') {
+    // Moon crater
+    ctx.fillStyle = '#3A3A4A';
+    ctx.beginPath();
+    ctx.ellipse(x + 25, groundY() - 8, 25, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2A2A3A';
+    ctx.beginPath();
+    ctx.ellipse(x + 25, groundY() - 5, 18, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Rim highlights
+    ctx.strokeStyle = '#5A5A6A';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 25, groundY() - 8, 25, Math.PI + 0.3, Math.PI * 2 - 0.3);
+    ctx.stroke();
+  } else if (type === 'alienplant') {
+    // Strange alien plant
+    ctx.fillStyle = '#9B59B6';
+    ctx.fillRect(x + 14, groundY() - 40, 6, 40);
+    // Glowing bulbs
+    ctx.fillStyle = '#E74C3C';
+    ctx.beginPath();
+    ctx.arc(x + 17, groundY() - 45, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#F39C12';
+    ctx.beginPath();
+    ctx.arc(x + 8, groundY() - 30, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 26, groundY() - 25, 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Glow effect
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = '#E74C3C';
+    ctx.beginPath();
+    ctx.arc(x + 17, groundY() - 45, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  } else if (type === 'spacerover') {
+    // Space rover
+    ctx.fillStyle = '#BDC3C7';
+    ctx.fillRect(x + 5, groundY() - 25, 30, 15);
+    ctx.fillStyle = '#3498DB';
+    ctx.fillRect(x + 10, groundY() - 35, 20, 12);
+    // Wheels
+    ctx.fillStyle = '#2C3E50';
+    ctx.beginPath();
+    ctx.arc(x + 12, groundY() - 8, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x + 28, groundY() - 8, 8, 0, Math.PI * 2);
+    ctx.fill();
+    // Antenna
+    ctx.strokeStyle = '#7F8C8D';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 25, groundY() - 35);
+    ctx.lineTo(x + 30, groundY() - 50);
+    ctx.stroke();
+    ctx.fillStyle = '#E74C3C';
+    ctx.beginPath();
+    ctx.arc(x + 30, groundY() - 52, 4, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (type === 'flag') {
+    // Planted flag
+    ctx.fillStyle = '#7F8C8D';
+    ctx.fillRect(x + 16, groundY() - 70, 4, 70);
+    // Flag
+    ctx.fillStyle = '#9B59B6';
+    ctx.beginPath();
+    ctx.moveTo(x + 20, groundY() - 70);
+    ctx.lineTo(x + 50, groundY() - 60);
+    ctx.lineTo(x + 20, groundY() - 50);
+    ctx.closePath();
+    ctx.fill();
+    // Turtle symbol on flag
+    ctx.fillStyle = '#2ECC71';
+    ctx.beginPath();
+    ctx.arc(x + 33, groundY() - 60, 6, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -1321,7 +1693,8 @@ function drawUI() {
   ctx.fillStyle = '#FFF';
   ctx.font = '14px Arial';
   ctx.textAlign = 'center';
-  let levelName = currentLevel === 1 ? 'NEW YORK CITY' : currentLevel === 2 ? 'BEACH PARTY' : 'SNOW MOUNTAIN';
+  let levelNames = ['', 'NEW YORK CITY', 'BEACH PARTY', 'SNOW MOUNTAIN', 'DESERT DUNES', 'OUTER SPACE'];
+  let levelName = levelNames[currentLevel] || 'ADVENTURE';
   ctx.fillText(levelName, canvas.width / 2, 52);
 
   // Mute button
@@ -1462,7 +1835,7 @@ function drawVictoryScreen() {
 
   ctx.fillStyle = '#FFF';
   ctx.font = 'bold 26px Arial';
-  let btnText = currentLevel < 3 ? 'NEXT LEVEL!' : 'PLAY AGAIN!';
+  let btnText = currentLevel < 5 ? 'NEXT LEVEL!' : 'PLAY AGAIN!';
   ctx.fillText(btnText, canvas.width / 2, btnY + 40);
 
   // Draw happy Mikey
