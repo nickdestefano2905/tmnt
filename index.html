@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Mikey's Pizza Skateboard Adventure!</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+    touch-action: none;
+  }
+  canvas { display: block; image-rendering: pixelated; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// ============================================================
+// MIKEY'S PIZZA SKATEBOARD ADVENTURE!
+// A simple side-scrolling game for ages 3-5
+// ============================================================
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// --- Audio Context (Web Audio API for chiptune sounds) ---
+let audioCtx = null;
+let musicPlaying = false;
+let muted = false;
+let currentMusic = null;
+
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+}
+
+function playTone(freq, duration, type = 'square', volume = 0.15) {
+  if (muted || !audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.value = volume;
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function playJumpSound() {
+  playTone(400, 0.1);
+  setTimeout(() => playTone(600, 0.1), 50);
+}
+
+function playPizzaSound() {
+  playTone(800, 0.1);
+  setTimeout(() => playTone(1000, 0.08), 60);
+  setTimeout(() => playTone(1200, 0.12), 100);
+}
+
+function playHurtSound() {
+  playTone(200, 0.15, 'sawtooth', 0.12);
+  setTimeout(() => playTone(150, 0.2, 'sawtooth', 0.1), 80);
+}
+
+function playWinSound() {
+  const notes = [523, 659, 784, 1047];
+  notes.forEach((n, i) => setTimeout(() => playTone(n, 0.2, 'square', 0.12), i * 150));
+}
+
+function playLoseSound() {
+  playTone(300, 0.3, 'sawtooth', 0.1);
+  setTimeout(() => playTone(200, 0.4, 'sawtooth', 0.1), 200);
+}
+
+// Simple looping music
+let musicInterval = null;
+function startMusic() {
+  if (muted || musicInterval) return;
+  const melody = [262, 294, 330, 349, 392, 349, 330, 294];
+  let idx = 0;
+  musicInterval = setInterval(() => {
+    if (!muted) playTone(melody[idx % melody.length], 0.15, 'square', 0.06);
+    idx++;
+  }, 300);
+}
+
+function stopMusic() {
+  if (musicInterval) {
+    clearInterval(musicInterval);
+    musicInterval = null;
+  }
+}
+
+// --- Responsive Canvas ---
+function resizeCanvas() {
+  canvas.width = Math.min(window.innerWidth, 900);
+  canvas.height = Math.min(window.innerHeight, 550);
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// --- Constants ---
+const GRAVITY = 0.4;
+const GROUND_HEIGHT = 70;
+const SCROLL_SPEED = 2.5;
+const LEVEL_LENGTH = 4000;
+const PIXEL_SIZE = 4; // For retro pixel look
+
+// --- Game State ---
+let gameState = 'menu'; // menu, playing, victory, gameover
+let currentLevel = 1;
+let scrollX = 0;
+let pizzaCount = 0;
+let health = 5;
+let maxHealth = 5;
+let invincibleTimer = 0;
+let celebrationParticles = [];
+let levelData = null;
+let shredderDefeated = false;
+let lastTime = 0;
+let showTutorial = true;
+let tutorialTimer = 0;
+
+// --- Player (Mikey) ---
+let mikey = {
+  x: 120,
+  y: 0,
+  vy: 0,
+  width: 40,
+  height: 52,
+  onGround: false,
+  jumping: false,
+  ducking: false,
+  jumpHeld: false,
+  frame: 0,
+  frameTimer: 0,
+  skateFrame: 0
+};
+
+// --- Input ---
+let jumpPressed = false;
+let duckPressed = false;
+
+function handleInput(type, pressed) {
+  if (type === 'jump') {
+    if (pressed && !jumpPressed) {
+      if (gameState === 'menu') {
+        startGame();
+      } else if (gameState === 'playing' && mikey.onGround && !mikey.jumping) {
+        mikey.vy = -11;
+        mikey.jumping = true;
+        mikey.onGround = false;
+        playJumpSound();
+      }
+    }
+    jumpPressed = pressed;
+  }
+  if (type === 'duck') {
+    duckPressed = pressed;
+    mikey.ducking = pressed && mikey.onGround;
+  }
+}
+
+// Keyboard
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+    e.preventDefault();
+    handleInput('jump', true);
+  }
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+    e.preventDefault();
+    handleInput('duck', true);
+  }
+});
+window.addEventListener('keyup', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+    handleInput('jump', false);
+  }
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+    handleInput('duck', false);
+  }
+});
+
+// Touch/Click
+canvas.addEventListener('mousedown', e => handleTap(e.clientX, e.clientY));
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  initAudio();
+  for (let t of e.touches) {
+    handleTap(t.clientX, t.clientY);
+  }
+}, { passive: false });
+
+canvas.addEventListener('mouseup', () => { handleInput('jump', false); handleInput('duck', false); });
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  handleInput('jump', false);
+  handleInput('duck', false);
+}, { passive: false });
+
+function handleTap(clientX, clientY) {
+  let rect = canvas.getBoundingClientRect();
+  let x = clientX - rect.left;
+  let y = clientY - rect.top;
+
+  // Mute button (top right)
+  if (x > canvas.width - 60 && y < 50) {
+    muted = !muted;
+    if (muted) stopMusic();
+    else if (gameState === 'playing') startMusic();
+    return;
+  }
+
+  if (gameState === 'menu') {
+    // Check play button
+    let btnW = 200, btnH = 70;
+    let btnX = canvas.width / 2 - btnW / 2;
+    let btnY = canvas.height * 0.55;
+    if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
+      startGame();
+    }
+    return;
+  }
+
+  if (gameState === 'victory' || gameState === 'gameover') {
+    // Check restart/next button
+    let btnW = 220, btnH = 60;
+    let btnX = canvas.width / 2 - btnW / 2;
+    let btnY = canvas.height * 0.62;
+    if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
+      if (gameState === 'victory') {
+        currentLevel++;
+        if (currentLevel > 2) currentLevel = 1; // Loop back
+        startGame();
+      } else {
+        startGame();
+      }
+    }
+    return;
+  }
+
+  if (gameState === 'playing') {
+    // Bottom half = jump, could add duck zone but keep it simple
+    if (y > canvas.height / 2) {
+      handleInput('jump', true);
+    } else {
+      // Top tap = duck (optional for kids)
+      handleInput('duck', true);
+      setTimeout(() => handleInput('duck', false), 300);
+    }
+  }
+}
+
+// --- Utility ---
+function rand(a, b) { return Math.random() * (b - a) + a; }
+function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function groundY() { return canvas.height - GROUND_HEIGHT; }
+
+function rectOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// --- Level Generation ---
+function generateLevel(levelNum) {
+  let data = {
+    platforms: [],
+    pizzas: [],
+    enemies: [],
+    obstacles: [],
+    gates: [],
+    decorations: [],
+    shredder: null
+  };
+
+  // Ground is implicit
+
+  // Generate platforms (gaps to jump over)
+  let px = 500;
+  while (px < LEVEL_LENGTH - 600) {
+    if (Math.random() > 0.6) {
+      // Gap with platform
+      let gapWidth = randInt(60, 100);
+      data.platforms.push({ x: px, gapWidth, hasPlatform: true, platformY: groundY() - randInt(30, 60) });
+      px += gapWidth + randInt(150, 300);
+    } else {
+      px += randInt(200, 400);
+    }
+  }
+
+  // Pizzas - lots of them, easy to collect
+  for (let i = 300; i < LEVEL_LENGTH - 300; i += randInt(80, 150)) {
+    let py = groundY() - mikey.height - randInt(10, 80);
+    if (Math.random() > 0.3) {
+      data.pizzas.push({ x: i, y: py, collected: false, bob: rand(0, Math.PI * 2) });
+    }
+  }
+
+  // Enemies - Foot Clan (not too many, spaced out)
+  for (let i = 600; i < LEVEL_LENGTH - 800; i += randInt(400, 600)) {
+    data.enemies.push({
+      x: i, y: groundY() - 40, w: 32, h: 40,
+      startX: i, patrolRange: randInt(40, 80),
+      dir: 1, speed: 0.5, frame: 0
+    });
+  }
+
+  // Simple gate puzzle (collect 5 pizzas to open)
+  if (levelNum === 1) {
+    data.gates.push({ x: LEVEL_LENGTH * 0.6, opened: false, requiredPizzas: 5 });
+  }
+
+  // Decorations based on level
+  for (let i = 0; i < LEVEL_LENGTH; i += randInt(150, 350)) {
+    if (levelNum === 1) {
+      // NYC decorations
+      let type = ['hydrant', 'manhole', 'trashcan', 'lamppost'][randInt(0, 3)];
+      data.decorations.push({ x: i, type });
+    } else {
+      // Beach decorations
+      let type = ['palmtree', 'umbrella', 'surfboard', 'sandcastle'][randInt(0, 3)];
+      data.decorations.push({ x: i, type });
+    }
+  }
+
+  // Shredder at end
+  data.shredder = {
+    x: LEVEL_LENGTH - 200,
+    y: groundY() - 70,
+    w: 50, h: 70,
+    phase: 0,
+    timer: 0,
+    vulnerable: true,
+    defeated: false,
+    jumpTimer: 0
+  };
+
+  return data;
+}
+
+// --- Start Game ---
+function startGame() {
+  initAudio();
+  gameState = 'playing';
+  scrollX = 0;
+  pizzaCount = 0;
+  health = maxHealth;
+  invincibleTimer = 0;
+  shredderDefeated = false;
+  celebrationParticles = [];
+  showTutorial = true;
+  tutorialTimer = 0;
+
+  mikey.x = 120;
+  mikey.y = groundY() - mikey.height;
+  mikey.vy = 0;
+  mikey.onGround = true;
+  mikey.jumping = false;
+  mikey.ducking = false;
+
+  levelData = generateLevel(currentLevel);
+  startMusic();
+}
+
+// --- Update ---
+function update(dt) {
+  if (gameState !== 'playing') return;
+
+  tutorialTimer += dt;
+  if (tutorialTimer > 4) showTutorial = false;
+
+  // Auto-scroll
+  scrollX += SCROLL_SPEED;
+
+  // Check win condition
+  if (scrollX > LEVEL_LENGTH - canvas.width / 2 && levelData.shredder.defeated) {
+    gameState = 'victory';
+    stopMusic();
+    playWinSound();
+    spawnCelebration(canvas.width / 2, canvas.height / 2, 30);
+    return;
+  }
+
+  // Mikey physics
+  mikey.vy += GRAVITY;
+  mikey.y += mikey.vy;
+  mikey.onGround = false;
+
+  // Ground collision
+  if (mikey.y + mikey.height >= groundY()) {
+    mikey.y = groundY() - mikey.height;
+    mikey.vy = 0;
+    mikey.onGround = true;
+    mikey.jumping = false;
+  }
+
+  // Keep mikey on screen horizontally
+  let mikeyScreenX = mikey.x - scrollX + 120;
+  if (mikeyScreenX < 80) {
+    // Fell behind - take damage or push forward
+    mikey.x = scrollX - 120 + 80;
+  }
+
+  // Animation
+  mikey.frameTimer += dt;
+  if (mikey.frameTimer > 0.1) {
+    mikey.frameTimer = 0;
+    mikey.frame = (mikey.frame + 1) % 4;
+    mikey.skateFrame = (mikey.skateFrame + 1) % 2;
+  }
+
+  // Invincibility timer
+  if (invincibleTimer > 0) invincibleTimer -= dt;
+
+  // Check pizza collection (generous hitbox)
+  let mikeyBox = { x: mikey.x - 20, y: mikey.y - 10, w: mikey.width + 40, h: mikey.height + 20 };
+  for (let p of levelData.pizzas) {
+    if (p.collected) continue;
+    let pizzaBox = { x: p.x + scrollX * 0 - scrollX, y: p.y, w: 30, h: 30 };
+    // Adjust for scroll
+    let screenPizzaX = p.x - scrollX;
+    if (Math.abs(screenPizzaX - (mikey.x - scrollX + 120)) < 50 &&
+        Math.abs(p.y - mikey.y) < 60) {
+      p.collected = true;
+      pizzaCount++;
+      playPizzaSound();
+      spawnCelebration(screenPizzaX + 15, p.y + 15, 8);
+      // Pizza heals a little
+      if (health < maxHealth) health = Math.min(maxHealth, health + 0.5);
+    }
+  }
+
+  // Check gates
+  for (let g of levelData.gates) {
+    if (!g.opened && pizzaCount >= g.requiredPizzas) {
+      g.opened = true;
+      spawnCelebration(g.x - scrollX, groundY() - 50, 15);
+    }
+    // Collision with closed gate
+    if (!g.opened) {
+      let gateScreenX = g.x - scrollX;
+      if (Math.abs(gateScreenX - 120) < 30) {
+        // Push back slightly
+        scrollX -= SCROLL_SPEED;
+      }
+    }
+  }
+
+  // Check enemy collision (small hitbox - forgiving)
+  for (let e of levelData.enemies) {
+    // Patrol movement
+    e.x += e.dir * e.speed;
+    if (e.x > e.startX + e.patrolRange || e.x < e.startX - e.patrolRange) {
+      e.dir *= -1;
+    }
+
+    if (invincibleTimer <= 0) {
+      let screenEnemyX = e.x - scrollX;
+      let enemyBox = { x: screenEnemyX + 8, y: e.y + 8, w: e.w - 16, h: e.h - 16 }; // Small hitbox
+      let mikeySmall = { x: 120 + 10, y: mikey.y + 10, w: mikey.width - 20, h: mikey.height - 20 };
+      if (rectOverlap(mikeySmall, enemyBox)) {
+        takeDamage();
+      }
+    }
+  }
+
+  // Check Shredder
+  let s = levelData.shredder;
+  if (!s.defeated) {
+    s.timer += dt;
+    s.jumpTimer += dt;
+
+    // Simple pattern: jump up and down
+    if (s.jumpTimer > 2) {
+      s.jumpTimer = 0;
+      s.phase = (s.phase + 1) % 2;
+    }
+
+    let shredderScreenX = s.x - scrollX;
+    if (shredderScreenX < canvas.width && shredderScreenX > -s.w) {
+      if (invincibleTimer <= 0) {
+        let shredderBox = { x: shredderScreenX + 10, y: s.y + 10, w: s.w - 20, h: s.h - 20 };
+        let mikeySmall = { x: 120 + 10, y: mikey.y + 10, w: mikey.width - 20, h: mikey.height - 20 };
+
+        // If Mikey jumps on Shredder's head, defeat him!
+        if (mikey.vy > 0 && mikey.y + mikey.height < s.y + 30 &&
+            Math.abs((120 + mikey.width/2) - (shredderScreenX + s.w/2)) < 40) {
+          s.defeated = true;
+          shredderDefeated = true;
+          mikey.vy = -8; // Bounce
+          playWinSound();
+          spawnCelebration(shredderScreenX + s.w/2, s.y, 20);
+        } else if (rectOverlap(mikeySmall, shredderBox)) {
+          takeDamage();
+        }
+      }
+    }
+  }
+
+  // Update celebration particles
+  for (let p of celebrationParticles) {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.15;
+    p.life -= dt;
+    p.rotation += p.rotSpeed;
+  }
+  celebrationParticles = celebrationParticles.filter(p => p.life > 0);
+}
+
+function takeDamage() {
+  health--;
+  invincibleTimer = 1.5; // Generous invincibility
+  playHurtSound();
+  if (health <= 0) {
+    gameState = 'gameover';
+    stopMusic();
+    playLoseSound();
+  }
+}
+
+function spawnCelebration(x, y, count) {
+  for (let i = 0; i < count; i++) {
+    celebrationParticles.push({
+      x, y,
+      vx: rand(-4, 4),
+      vy: rand(-6, -2),
+      life: rand(0.6, 1.2),
+      color: ['#FFD700', '#FF6B6B', '#4ECDC4', '#A8E6CF', '#FF8C00'][randInt(0, 4)],
+      size: rand(4, 10),
+      rotation: rand(0, Math.PI * 2),
+      rotSpeed: rand(-0.2, 0.2)
+    });
+  }
+}
+
+// ============================================================
+// DRAWING (Pixel Art Style)
+// ============================================================
+
+function draw() {
+  // Sky gradient based on level
+  if (currentLevel === 1) {
+    // NYC - evening sky
+    let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, '#1a1a3e');
+    grad.addColorStop(0.5, '#4a3f6e');
+    grad.addColorStop(1, '#2d2d5a');
+    ctx.fillStyle = grad;
+  } else {
+    // Beach - bright day
+    let grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grad.addColorStop(0, '#87CEEB');
+    grad.addColorStop(0.6, '#98D8E8');
+    grad.addColorStop(1, '#F0E68C');
+    ctx.fillStyle = grad;
+  }
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw background elements
+  drawBackground();
+
+  if (gameState === 'playing') {
+    drawGame();
+  }
+
+  // UI always on top
+  drawUI();
+
+  // Particles
+  for (let p of celebrationParticles) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+    ctx.globalAlpha = clamp(p.life, 0, 1);
+    ctx.fillStyle = p.color;
+    // Pizza-shaped particles!
+    if (Math.random() > 0.5) {
+      drawPixelPizza(0, 0, p.size);
+    } else {
+      ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // Screens
+  if (gameState === 'menu') drawMenuScreen();
+  if (gameState === 'victory') drawVictoryScreen();
+  if (gameState === 'gameover') drawGameOverScreen();
+}
+
+function drawBackground() {
+  if (currentLevel === 1) {
+    // NYC Buildings (parallax)
+    drawNYCBackground();
+  } else {
+    // Beach background
+    drawBeachBackground();
+  }
+}
+
+function drawNYCBackground() {
+  // Far buildings (slow parallax)
+  ctx.fillStyle = '#252545';
+  for (let i = -1; i < 10; i++) {
+    let bx = i * 150 - (scrollX * 0.1) % 150;
+    let bh = 80 + Math.sin(i * 1.5) * 40;
+    ctx.fillRect(bx, groundY() - bh - 50, 120, bh + 50);
+    // Windows
+    ctx.fillStyle = '#FFD93D';
+    for (let wy = groundY() - bh - 40; wy < groundY() - 60; wy += 20) {
+      for (let wx = bx + 10; wx < bx + 110; wx += 25) {
+        if (Math.random() > 0.3) {
+          ctx.fillRect(wx, wy, 12, 15);
+        }
+      }
+    }
+    ctx.fillStyle = '#252545';
+  }
+
+  // Closer buildings
+  ctx.fillStyle = '#1a1a35';
+  for (let i = -1; i < 8; i++) {
+    let bx = i * 180 - (scrollX * 0.3) % 180;
+    let bh = 120 + Math.sin(i * 2.3) * 50;
+    ctx.fillRect(bx, groundY() - bh, 150, bh);
+  }
+}
+
+function drawBeachBackground() {
+  // Ocean
+  ctx.fillStyle = '#4AA3DF';
+  ctx.fillRect(0, canvas.height * 0.3, canvas.width, canvas.height * 0.3);
+
+  // Waves
+  ctx.fillStyle = '#5BBCE8';
+  for (let i = 0; i < canvas.width; i += 40) {
+    let waveY = canvas.height * 0.55 + Math.sin((i + scrollX * 0.5) * 0.05) * 8;
+    ctx.beginPath();
+    ctx.arc(i, waveY, 20, Math.PI, 0);
+    ctx.fill();
+  }
+
+  // Sun
+  ctx.fillStyle = '#FFD93D';
+  ctx.beginPath();
+  ctx.arc(canvas.width - 80, 60, 40, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pier (far background)
+  ctx.fillStyle = '#8B4513';
+  ctx.fillRect(100 - scrollX * 0.1, canvas.height * 0.45, 300, 10);
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(120 + i * 60 - scrollX * 0.1, canvas.height * 0.45, 8, 60);
+  }
+}
+
+function drawGame() {
+  // Decorations
+  for (let d of levelData.decorations) {
+    let sx = d.x - scrollX;
+    if (sx < -50 || sx > canvas.width + 50) continue;
+    drawDecoration(d.type, sx);
+  }
+
+  // Ground
+  drawGround();
+
+  // Gates
+  for (let g of levelData.gates) {
+    let sx = g.x - scrollX;
+    if (sx < -50 || sx > canvas.width + 50) continue;
+    drawGate(g, sx);
+  }
+
+  // Pizzas
+  for (let p of levelData.pizzas) {
+    if (p.collected) continue;
+    let sx = p.x - scrollX;
+    if (sx < -30 || sx > canvas.width + 30) continue;
+    p.bob += 0.08;
+    let bobY = p.y + Math.sin(p.bob) * 5;
+    drawPixelPizza(sx, bobY, 24);
+  }
+
+  // Enemies
+  for (let e of levelData.enemies) {
+    let sx = e.x - scrollX;
+    if (sx < -50 || sx > canvas.width + 50) continue;
+    drawFootNinja(sx, e.y, e.dir);
+  }
+
+  // Shredder
+  let s = levelData.shredder;
+  let sx = s.x - scrollX;
+  if (sx < canvas.width + 100 && sx > -100 && !s.defeated) {
+    drawShredder(sx, s.y, s.phase);
+  }
+
+  // Mikey
+  drawMikey();
+
+  // Tutorial hint
+  if (showTutorial) {
+    ctx.globalAlpha = 1 - (tutorialTimer / 4);
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('TAP or SPACE to JUMP!', canvas.width / 2, canvas.height / 2 - 50);
+    ctx.font = '18px Arial';
+    ctx.fillText('\u2B06', canvas.width / 2, canvas.height / 2 - 20);
+    ctx.globalAlpha = 1;
+  }
+
+  // Level progress bar
+  drawProgressBar();
+}
+
+function drawGround() {
+  if (currentLevel === 1) {
+    // NYC sidewalk/street
+    ctx.fillStyle = '#555';
+    ctx.fillRect(0, groundY(), canvas.width, GROUND_HEIGHT);
+    ctx.fillStyle = '#666';
+    ctx.fillRect(0, groundY(), canvas.width, 8);
+    // Sidewalk lines
+    ctx.fillStyle = '#777';
+    for (let i = 0; i < canvas.width; i += 60) {
+      let lx = i - (scrollX % 60);
+      ctx.fillRect(lx, groundY() + 10, 2, GROUND_HEIGHT - 10);
+    }
+  } else {
+    // Beach sand
+    ctx.fillStyle = '#F4D03F';
+    ctx.fillRect(0, groundY(), canvas.width, GROUND_HEIGHT);
+    ctx.fillStyle = '#E8C536';
+    ctx.fillRect(0, groundY(), canvas.width, 6);
+    // Sand texture
+    ctx.fillStyle = '#D4AC2B';
+    for (let i = 0; i < 30; i++) {
+      let dx = (i * 47 + scrollX * 0.5) % canvas.width;
+      ctx.fillRect(dx, groundY() + 15 + (i % 5) * 10, 3, 3);
+    }
+  }
+}
+
+function drawDecoration(type, x) {
+  if (type === 'hydrant') {
+    ctx.fillStyle = '#E74C3C';
+    ctx.fillRect(x, groundY() - 30, 16, 30);
+    ctx.fillRect(x - 4, groundY() - 25, 24, 8);
+    ctx.fillStyle = '#C0392B';
+    ctx.fillRect(x + 4, groundY() - 35, 8, 8);
+  } else if (type === 'manhole') {
+    ctx.fillStyle = '#333';
+    ctx.beginPath();
+    ctx.ellipse(x + 20, groundY() + 4, 20, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (type === 'trashcan') {
+    ctx.fillStyle = '#2ECC71';
+    ctx.fillRect(x, groundY() - 35, 25, 35);
+    ctx.fillStyle = '#27AE60';
+    ctx.fillRect(x - 2, groundY() - 38, 29, 6);
+  } else if (type === 'lamppost') {
+    ctx.fillStyle = '#333';
+    ctx.fillRect(x + 8, groundY() - 100, 6, 100);
+    ctx.fillStyle = '#F1C40F';
+    ctx.fillRect(x, groundY() - 110, 22, 15);
+  } else if (type === 'palmtree') {
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(x + 10, groundY() - 80, 12, 80);
+    ctx.fillStyle = '#2ECC71';
+    for (let i = 0; i < 5; i++) {
+      ctx.save();
+      ctx.translate(x + 16, groundY() - 75);
+      ctx.rotate((i - 2) * 0.4);
+      ctx.fillRect(-4, -40, 8, 45);
+      ctx.restore();
+    }
+  } else if (type === 'umbrella') {
+    ctx.fillStyle = '#E74C3C';
+    ctx.beginPath();
+    ctx.arc(x + 20, groundY() - 50, 25, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(x + 18, groundY() - 50, 4, 50);
+  } else if (type === 'surfboard') {
+    ctx.fillStyle = '#3498DB';
+    ctx.save();
+    ctx.translate(x + 15, groundY() - 10);
+    ctx.rotate(-0.3);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 8, 35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#E74C3C';
+    ctx.fillRect(-4, -20, 8, 4);
+    ctx.restore();
+  } else if (type === 'sandcastle') {
+    ctx.fillStyle = '#D4AC2B';
+    ctx.fillRect(x, groundY() - 20, 30, 20);
+    ctx.fillRect(x + 5, groundY() - 35, 8, 18);
+    ctx.fillRect(x + 17, groundY() - 30, 8, 13);
+    ctx.fillStyle = '#E74C3C';
+    ctx.fillRect(x + 7, groundY() - 40, 4, 8);
+  }
+}
+
+function drawGate(g, x) {
+  if (g.opened) {
+    ctx.globalAlpha = 0.3;
+  }
+  ctx.fillStyle = '#8B4513';
+  ctx.fillRect(x - 5, groundY() - 80, 10, 80);
+  ctx.fillRect(x + 35, groundY() - 80, 10, 80);
+  ctx.fillStyle = g.opened ? '#2ECC71' : '#E74C3C';
+  ctx.fillRect(x, groundY() - 70, 40, 60);
+
+  if (!g.opened) {
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${g.requiredPizzas}`, x + 20, groundY() - 35);
+    drawPixelPizza(x + 8, groundY() - 60, 12);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawPixelPizza(x, y, size) {
+  // Pizza slice (pixel art style)
+  ctx.fillStyle = '#F4D03F'; // Cheese
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + size, y + size * 0.8);
+  ctx.lineTo(x - size * 0.2, y + size * 0.8);
+  ctx.closePath();
+  ctx.fill();
+
+  // Crust
+  ctx.fillStyle = '#D4A017';
+  ctx.fillRect(x - size * 0.25, y + size * 0.7, size * 1.3, size * 0.15);
+
+  // Pepperoni
+  ctx.fillStyle = '#C0392B';
+  ctx.beginPath();
+  ctx.arc(x + size * 0.1, y + size * 0.35, size * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x + size * 0.35, y + size * 0.5, size * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawFootNinja(x, y, dir) {
+  // Simple Foot Clan ninja (purple/black, not scary)
+  ctx.fillStyle = '#4A235A'; // Purple
+  // Body
+  ctx.fillRect(x + 6, y + 15, 20, 25);
+  // Head
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.arc(x + 16, y + 10, 12, 0, Math.PI * 2);
+  ctx.fill();
+  // Eyes (cartoony)
+  ctx.fillStyle = '#FFF';
+  ctx.fillRect(x + 10 + (dir > 0 ? 2 : 0), y + 6, 5, 6);
+  ctx.fillRect(x + 18 + (dir > 0 ? 2 : 0), y + 6, 5, 6);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x + 12 + (dir > 0 ? 2 : 0), y + 8, 2, 3);
+  ctx.fillRect(x + 20 + (dir > 0 ? 2 : 0), y + 8, 2, 3);
+  // Legs
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(x + 8, y + 35, 6, 10);
+  ctx.fillRect(x + 18, y + 35, 6, 10);
+}
+
+function drawShredder(x, y, phase) {
+  // Shredder - big but cartoony, not scary
+  let bounce = Math.sin(phase * Math.PI) * 10;
+  y -= bounce;
+
+  // Cape
+  ctx.fillStyle = '#8E44AD';
+  ctx.beginPath();
+  ctx.moveTo(x + 25, y + 20);
+  ctx.lineTo(x + 55, y + 70);
+  ctx.lineTo(x - 5, y + 70);
+  ctx.closePath();
+  ctx.fill();
+
+  // Body armor
+  ctx.fillStyle = '#7F8C8D';
+  ctx.fillRect(x + 8, y + 25, 34, 35);
+
+  // Shoulder pads
+  ctx.fillStyle = '#95A5A6';
+  ctx.fillRect(x, y + 20, 15, 12);
+  ctx.fillRect(x + 35, y + 20, 15, 12);
+
+  // Head/helmet
+  ctx.fillStyle = '#5D6D7E';
+  ctx.beginPath();
+  ctx.arc(x + 25, y + 15, 18, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Face mask
+  ctx.fillStyle = '#2C3E50';
+  ctx.fillRect(x + 12, y + 8, 26, 18);
+
+  // Eyes (angry but cartoony)
+  ctx.fillStyle = '#E74C3C';
+  ctx.fillRect(x + 15, y + 12, 8, 4);
+  ctx.fillRect(x + 27, y + 12, 8, 4);
+
+  // Blades on helmet
+  ctx.fillStyle = '#BDC3C7';
+  ctx.beginPath();
+  ctx.moveTo(x + 5, y + 5);
+  ctx.lineTo(x + 15, y + 15);
+  ctx.lineTo(x + 10, y + 15);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + 45, y + 5);
+  ctx.lineTo(x + 35, y + 15);
+  ctx.lineTo(x + 40, y + 15);
+  ctx.closePath();
+  ctx.fill();
+
+  // Legs
+  ctx.fillStyle = '#2C3E50';
+  ctx.fillRect(x + 12, y + 55, 10, 18);
+  ctx.fillRect(x + 28, y + 55, 10, 18);
+}
+
+function drawMikey() {
+  let x = 120;
+  let y = mikey.y;
+
+  // Flashing when invincible
+  if (invincibleTimer > 0 && Math.sin(invincibleTimer * 20) > 0) {
+    ctx.globalAlpha = 0.4;
+  }
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Skateboard
+  ctx.fillStyle = '#E74C3C';
+  ctx.fillRect(-5, mikey.height - 6, mikey.width + 10, 6);
+  // Wheels
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.arc(5, mikey.height, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(mikey.width - 5, mikey.height, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Shell
+  ctx.fillStyle = '#8B4513';
+  ctx.beginPath();
+  ctx.ellipse(mikey.width / 2, mikey.height * 0.55, mikey.width * 0.45, mikey.height * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#A0522D';
+  // Shell pattern
+  ctx.strokeStyle = '#6B3510';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(mikey.width / 2, mikey.height * 0.25);
+  ctx.lineTo(mikey.width / 2, mikey.height * 0.75);
+  ctx.moveTo(mikey.width * 0.25, mikey.height * 0.55);
+  ctx.lineTo(mikey.width * 0.75, mikey.height * 0.55);
+  ctx.stroke();
+
+  // Body/plastron (front shell)
+  ctx.fillStyle = '#F4D03F';
+  ctx.beginPath();
+  ctx.ellipse(mikey.width / 2 + 5, mikey.height * 0.55, mikey.width * 0.25, mikey.height * 0.28, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#2ECC71';
+  ctx.beginPath();
+  ctx.arc(mikey.width / 2 + 8, mikey.height * 0.22, 14, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Orange mask!
+  ctx.fillStyle = '#FF6B35';
+  ctx.fillRect(mikey.width / 2 - 8, mikey.height * 0.15, 28, 10);
+  // Mask tails
+  ctx.save();
+  ctx.translate(mikey.width / 2 + 20, mikey.height * 0.2);
+  ctx.rotate(0.3 + Math.sin(mikey.frame * 0.5) * 0.1);
+  ctx.fillRect(0, -3, 15, 6);
+  ctx.fillRect(0, 2, 12, 5);
+  ctx.restore();
+
+  // Eyes (on mask)
+  ctx.fillStyle = '#FFF';
+  ctx.beginPath();
+  ctx.ellipse(mikey.width / 2, mikey.height * 0.18, 5, 6, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(mikey.width / 2 + 12, mikey.height * 0.18, 5, 6, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  // Pupils
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(mikey.width / 2 + 2, mikey.height * 0.18, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(mikey.width / 2 + 14, mikey.height * 0.18, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Big smile
+  ctx.strokeStyle = '#1a6b31';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(mikey.width / 2 + 8, mikey.height * 0.28, 8, 0.2, Math.PI - 0.2);
+  ctx.stroke();
+
+  // Arms (holding nunchucks pose)
+  ctx.fillStyle = '#2ECC71';
+  // Left arm
+  ctx.save();
+  ctx.translate(5, mikey.height * 0.4);
+  ctx.rotate(-0.5 + Math.sin(mikey.frame * 0.8) * 0.2);
+  ctx.fillRect(-4, 0, 10, 18);
+  ctx.restore();
+  // Right arm with nunchuck
+  ctx.save();
+  ctx.translate(mikey.width - 5, mikey.height * 0.35);
+  ctx.rotate(0.5 + Math.sin(mikey.frame * 0.8 + 1) * 0.3);
+  ctx.fillRect(-3, 0, 10, 20);
+  // Nunchuck
+  ctx.fillStyle = '#8B4513';
+  ctx.fillRect(2, 18, 5, 15);
+  ctx.fillStyle = '#F4D03F';
+  ctx.fillRect(3, 30, 3, 8);
+  ctx.fillStyle = '#8B4513';
+  ctx.fillRect(2, 35, 5, 12);
+  ctx.restore();
+
+  // Legs
+  ctx.fillStyle = '#2ECC71';
+  ctx.fillRect(10, mikey.height * 0.7, 10, 12);
+  ctx.fillRect(25, mikey.height * 0.7, 10, 12);
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function drawProgressBar() {
+  let barW = canvas.width * 0.4;
+  let barH = 12;
+  let barX = canvas.width / 2 - barW / 2;
+  let barY = 15;
+
+  let progress = scrollX / (LEVEL_LENGTH - canvas.width / 2);
+  progress = clamp(progress, 0, 1);
+
+  // Background
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+  ctx.fillStyle = '#555';
+  ctx.fillRect(barX, barY, barW, barH);
+
+  // Progress
+  ctx.fillStyle = '#FF6B35';
+  ctx.fillRect(barX, barY, barW * progress, barH);
+
+  // Mikey icon at progress point
+  ctx.fillStyle = '#2ECC71';
+  ctx.beginPath();
+  ctx.arc(barX + barW * progress, barY + barH / 2, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#FF6B35';
+  ctx.fillRect(barX + barW * progress - 6, barY + barH / 2 - 3, 12, 4);
+
+  // Shredder icon at end
+  ctx.fillStyle = levelData.shredder.defeated ? '#2ECC71' : '#8E44AD';
+  ctx.beginPath();
+  ctx.arc(barX + barW - 2, barY + barH / 2, 7, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawUI() {
+  // Health (turtle shell icons)
+  let hx = 20, hy = 45;
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  roundRect(hx - 8, hy - 8, maxHealth * 28 + 12, 35);
+  ctx.fill();
+
+  for (let i = 0; i < maxHealth; i++) {
+    if (i < health) {
+      drawMiniShell(hx + i * 28, hy, true);
+    } else {
+      drawMiniShell(hx + i * 28, hy, false);
+    }
+  }
+
+  // Pizza count
+  let px = canvas.width - 120, py = 45;
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  roundRect(px - 10, py - 12, 110, 40);
+  ctx.fill();
+  drawPixelPizza(px, py, 20);
+  ctx.fillStyle = '#FFF';
+  ctx.font = 'bold 24px Arial';
+  ctx.textAlign = 'left';
+  ctx.fillText(`x ${pizzaCount}`, px + 30, py + 12);
+
+  // Level indicator
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  roundRect(canvas.width / 2 - 60, 35, 120, 25);
+  ctx.fill();
+  ctx.fillStyle = '#FFF';
+  ctx.font = '14px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(currentLevel === 1 ? 'NEW YORK CITY' : 'BEACH PARTY', canvas.width / 2, 52);
+
+  // Mute button
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  roundRect(canvas.width - 55, 5, 45, 35);
+  ctx.fill();
+  ctx.fillStyle = '#FFF';
+  ctx.font = '20px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText(muted ? '\uD83D\uDD07' : '\uD83D\uDD0A', canvas.width - 32, 28);
+}
+
+function drawMiniShell(x, y, filled) {
+  ctx.fillStyle = filled ? '#8B4513' : '#444';
+  ctx.beginPath();
+  ctx.ellipse(x + 10, y + 10, 12, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (filled) {
+    ctx.fillStyle = '#2ECC71';
+    ctx.beginPath();
+    ctx.ellipse(x + 10, y + 10, 6, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function roundRect(x, y, w, h, r = 8) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+// --- Screens ---
+
+function drawMenuScreen() {
+  // Dark overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Title with fun colors
+  ctx.fillStyle = '#FF6B35'; // Orange like Mikey
+  ctx.font = 'bold 42px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText("MIKEY'S PIZZA", canvas.width / 2, canvas.height * 0.2);
+  ctx.fillStyle = '#2ECC71'; // Green
+  ctx.fillText('SKATEBOARD ADVENTURE!', canvas.width / 2, canvas.height * 0.3);
+
+  // Draw big Mikey face
+  let faceX = canvas.width / 2, faceY = canvas.height * 0.42;
+  // Head
+  ctx.fillStyle = '#2ECC71';
+  ctx.beginPath();
+  ctx.arc(faceX, faceY, 45, 0, Math.PI * 2);
+  ctx.fill();
+  // Mask
+  ctx.fillStyle = '#FF6B35';
+  ctx.fillRect(faceX - 45, faceY - 12, 90, 25);
+  // Eyes
+  ctx.fillStyle = '#FFF';
+  ctx.beginPath();
+  ctx.ellipse(faceX - 18, faceY - 2, 14, 16, -0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(faceX + 18, faceY - 2, 14, 16, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(faceX - 14, faceY, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(faceX + 22, faceY, 5, 0, Math.PI * 2);
+  ctx.fill();
+  // Smile
+  ctx.strokeStyle = '#1a6b31';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(faceX, faceY + 20, 20, 0.2, Math.PI - 0.2);
+  ctx.stroke();
+
+  // Play button
+  let btnW = 200, btnH = 70;
+  let btnX = canvas.width / 2 - btnW / 2;
+  let btnY = canvas.height * 0.55;
+
+  ctx.fillStyle = '#E74C3C';
+  roundRect(btnX, btnY, btnW, btnH, 15);
+  ctx.fill();
+  ctx.strokeStyle = '#C0392B';
+  ctx.lineWidth = 4;
+  roundRect(btnX, btnY, btnW, btnH, 15);
+  ctx.stroke();
+
+  ctx.fillStyle = '#FFF';
+  ctx.font = 'bold 36px Arial';
+  ctx.fillText('PLAY!', canvas.width / 2, btnY + 48);
+
+  // Instructions
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.font = '18px Arial';
+  ctx.fillText('TAP anywhere or press SPACE to jump!', canvas.width / 2, canvas.height * 0.78);
+  ctx.fillText('Collect pizza \uD83C\uDF55 and beat Shredder!', canvas.width / 2, canvas.height * 0.85);
+}
+
+function drawVictoryScreen() {
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Celebration text
+  ctx.fillStyle = '#FFD700';
+  ctx.font = 'bold 48px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('COWABUNGA!', canvas.width / 2, canvas.height * 0.22);
+
+  ctx.fillStyle = '#2ECC71';
+  ctx.font = 'bold 32px Arial';
+  ctx.fillText('YOU DID IT!', canvas.width / 2, canvas.height * 0.32);
+
+  // Pizza count
+  ctx.fillStyle = '#FFF';
+  ctx.font = '24px Arial';
+  ctx.fillText(`Pizzas collected: ${pizzaCount} \uD83C\uDF55`, canvas.width / 2, canvas.height * 0.45);
+
+  // Next level / Play again button
+  let btnW = 220, btnH = 60;
+  let btnX = canvas.width / 2 - btnW / 2;
+  let btnY = canvas.height * 0.55;
+
+  ctx.fillStyle = '#2ECC71';
+  roundRect(btnX, btnY, btnW, btnH, 12);
+  ctx.fill();
+
+  ctx.fillStyle = '#FFF';
+  ctx.font = 'bold 26px Arial';
+  let btnText = currentLevel < 2 ? 'NEXT LEVEL!' : 'PLAY AGAIN!';
+  ctx.fillText(btnText, canvas.width / 2, btnY + 40);
+
+  // Draw happy Mikey
+  drawMiniMikeyFace(canvas.width / 2, canvas.height * 0.8, 30);
+}
+
+function drawGameOverScreen() {
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = '#E74C3C';
+  ctx.font = 'bold 42px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('OH NO!', canvas.width / 2, canvas.height * 0.25);
+
+  ctx.fillStyle = '#FFF';
+  ctx.font = '26px Arial';
+  ctx.fillText('Try again?', canvas.width / 2, canvas.height * 0.38);
+
+  // Pizzas collected
+  ctx.font = '20px Arial';
+  ctx.fillText(`You got ${pizzaCount} pizzas! \uD83C\uDF55`, canvas.width / 2, canvas.height * 0.48);
+
+  // Try again button (big and friendly)
+  let btnW = 220, btnH = 60;
+  let btnX = canvas.width / 2 - btnW / 2;
+  let btnY = canvas.height * 0.55;
+
+  ctx.fillStyle = '#3498DB';
+  roundRect(btnX, btnY, btnW, btnH, 12);
+  ctx.fill();
+
+  ctx.fillStyle = '#FFF';
+  ctx.font = 'bold 28px Arial';
+  ctx.fillText('TRY AGAIN!', canvas.width / 2, btnY + 42);
+
+  // Encouraging Mikey
+  drawMiniMikeyFace(canvas.width / 2, canvas.height * 0.82, 25);
+}
+
+function drawMiniMikeyFace(x, y, size) {
+  ctx.fillStyle = '#2ECC71';
+  ctx.beginPath();
+  ctx.arc(x, y, size, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#FF6B35';
+  ctx.fillRect(x - size, y - size * 0.3, size * 2, size * 0.5);
+  ctx.fillStyle = '#FFF';
+  ctx.beginPath();
+  ctx.arc(x - size * 0.35, y - size * 0.1, size * 0.25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x + size * 0.35, y - size * 0.1, size * 0.25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(x - size * 0.3, y - size * 0.05, size * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x + size * 0.4, y - size * 0.05, size * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#1a6b31';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y + size * 0.3, size * 0.4, 0.2, Math.PI - 0.2);
+  ctx.stroke();
+}
+
+// --- Game Loop ---
+function gameLoop(timestamp) {
+  if (!lastTime) lastTime = timestamp;
+  let dt = (timestamp - lastTime) / 1000;
+  if (dt > 0.1) dt = 0.1;
+  lastTime = timestamp;
+
+  update(dt);
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>
